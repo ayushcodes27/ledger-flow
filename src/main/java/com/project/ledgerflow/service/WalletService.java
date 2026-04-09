@@ -2,7 +2,8 @@ package com.project.ledgerflow.service;
 
 import com.project.ledgerflow.model.Wallet;
 import com.project.ledgerflow.repository.WalletRepository;
-import jakarta.transaction.Transactional;
+//import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -17,7 +18,7 @@ public class WalletService {
 
     @Transactional
     public Wallet createWallet(String currency){
-        Wallet wallet = WalletBuilder()
+        Wallet wallet = Wallet.builder()
                 .balance(BigDecimal.ZERO)
                 .currency(currency.toUpperCase())
                 .build();

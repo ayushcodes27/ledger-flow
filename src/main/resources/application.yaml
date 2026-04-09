@@ -1,6 +1,8 @@
+server:
+  port: 8088
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/mini_wallet
+    url: jdbc:postgresql://localhost:5454/mini_wallet
     username: wallet_user
     password: wallet_password
   jpa:
