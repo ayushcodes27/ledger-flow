@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mini_wallet
+    username: wallet_user
+    password: wallet_password
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
