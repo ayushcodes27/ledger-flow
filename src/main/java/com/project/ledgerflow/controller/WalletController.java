@@ -39,18 +39,20 @@ public class WalletController {
     @PostMapping("/{id}/credit")
     public ResponseEntity<WalletResponse> creditWallet(
             @PathVariable UUID id,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody TransactionRequest request) {
 
-        Wallet updatedWallet = walletService.credit(id, request.amount());
+        Wallet updatedWallet = walletService.credit(id, request.amount(), idempotencyKey);
         return ResponseEntity.ok(WalletResponse.fromEntity(updatedWallet));
     }
 
     @PostMapping("/{id}/debit")
     public ResponseEntity<WalletResponse> debitWallet(
             @PathVariable UUID id,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody TransactionRequest request) {
 
-        Wallet updatedWallet = walletService.debit(id, request.amount());
+        Wallet updatedWallet = walletService.debit(id, request.amount(), idempotencyKey);
         return ResponseEntity.ok(WalletResponse.fromEntity(updatedWallet));
     }
 

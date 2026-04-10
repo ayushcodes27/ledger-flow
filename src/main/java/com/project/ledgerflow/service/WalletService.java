@@ -1,8 +1,11 @@
 package com.project.ledgerflow.service;
 
+import com.project.ledgerflow.entity.IdempotencyKey;
 import com.project.ledgerflow.entity.LedgerEntry;
 import com.project.ledgerflow.entity.TransactionType;
+import com.project.ledgerflow.exception.IdempotencyException;
 import com.project.ledgerflow.model.Wallet;
+import com.project.ledgerflow.repository.IdempotencyKeyRepository;
 import com.project.ledgerflow.repository.LedgerEntryRepository;
 import com.project.ledgerflow.repository.WalletRepository;
 //import jakarta.transaction.Transactional;
@@ -19,6 +22,7 @@ public class WalletService {
 
     private final WalletRepository walletRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
+    private final IdempotencyKeyRepository idempotencyKeyRepository;
 
     @Transactional
     public Wallet createWallet(String currency){
@@ -36,7 +40,9 @@ public class WalletService {
     }
 
     @Transactional
-    public Wallet credit(UUID walletId, BigDecimal amount){
+    public Wallet credit(UUID walletId, BigDecimal amount, String idempotencyKey){
+        processIdempotency(idempotencyKey);
+
         if(amount.compareTo(BigDecimal.ZERO) <= 0){
             throw new IllegalArgumentException("Credit amount must be greater than zero");
         }
@@ -56,7 +62,9 @@ public class WalletService {
     }
 
     @Transactional
-    public Wallet debit(UUID walletId,  BigDecimal amount){
+    public Wallet debit(UUID walletId,  BigDecimal amount, String idempotencyKey){
+        processIdempotency(idempotencyKey);
+
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Debit amount must be greater than zero");
         }
@@ -81,4 +89,14 @@ public class WalletService {
         return savedWallet;
     }
 
+    private void processIdempotency(String idempotencyKey) {
+        if (idempotencyKeyRepository.existsById(idempotencyKey)) {
+            // In a fully mature system, we would return the exact cached response here.
+            // For our scope, throwing a 409 Conflict equivalent currently.
+            throw new IdempotencyException("Transaction with Idempotency Key [" + idempotencyKey + "] has already been processed.");
+        }
+
+        // If it doesn't exist, save it so it can never be used again
+        idempotencyKeyRepository.save(new IdempotencyKey(idempotencyKey, null));
+    }
 }
