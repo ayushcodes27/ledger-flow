@@ -1,6 +1,9 @@
 package com.project.ledgerflow.service;
 
+import com.project.ledgerflow.entity.LedgerEntry;
+import com.project.ledgerflow.entity.TransactionType;
 import com.project.ledgerflow.model.Wallet;
+import com.project.ledgerflow.repository.LedgerEntryRepository;
 import com.project.ledgerflow.repository.WalletRepository;
 //import jakarta.transaction.Transactional;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +18,7 @@ import java.util.UUID;
 public class WalletService {
 
     private final WalletRepository walletRepository;
+    private final LedgerEntryRepository ledgerEntryRepository;
 
     @Transactional
     public Wallet createWallet(String currency){
@@ -39,8 +43,16 @@ public class WalletService {
 
         Wallet wallet = getWallet(walletId);
         wallet.setBalance(wallet.getBalance().add(amount));
+        Wallet savedWallet = walletRepository.save(wallet);
 
-        return walletRepository.save(wallet);
+        LedgerEntry entry = LedgerEntry.builder()
+                .walletId(savedWallet.getId())
+                .amount(amount)
+                .type(TransactionType.CREDIT)
+                .build();
+        ledgerEntryRepository.save(entry);
+
+        return savedWallet;
     }
 
     @Transactional
@@ -57,8 +69,16 @@ public class WalletService {
         }
 
         wallet.setBalance(wallet.getBalance().subtract(amount));
+        Wallet savedWallet = walletRepository.save(wallet);
 
-        return walletRepository.save(wallet);
+        LedgerEntry entry = LedgerEntry.builder()
+                .walletId(savedWallet.getId())
+                .amount(amount)
+                .type(TransactionType.DEBIT)
+                .build();
+        ledgerEntryRepository.save(entry);
+
+        return savedWallet;
     }
 
 }

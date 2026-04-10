@@ -1,9 +1,11 @@
 package com.project.ledgerflow.controller;
 
 import com.project.ledgerflow.dto.CreateWalletRequest;
+import com.project.ledgerflow.dto.LedgerResponse;
 import com.project.ledgerflow.dto.TransactionRequest;
 import com.project.ledgerflow.dto.WalletResponse;
 import com.project.ledgerflow.model.Wallet;
+import com.project.ledgerflow.repository.LedgerEntryRepository;
 import com.project.ledgerflow.service.WalletService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -19,6 +22,7 @@ import java.util.UUID;
 public class WalletController {
 
     private final WalletService walletService;
+    private final LedgerEntryRepository ledgerEntryRepository;
 
     @PostMapping
     public ResponseEntity<WalletResponse> createWallet(@Valid @RequestBody CreateWalletRequest request){
@@ -48,5 +52,15 @@ public class WalletController {
 
         Wallet updatedWallet = walletService.debit(id, request.amount());
         return ResponseEntity.ok(WalletResponse.fromEntity(updatedWallet));
+    }
+
+    @GetMapping("/{id}/ledger")
+    public ResponseEntity<List<LedgerResponse>> getLedger(@PathVariable UUID id) {
+        List<LedgerResponse> ledger = ledgerEntryRepository.findByWalletIdOrderByCreatedAtDesc(id)
+                .stream()
+                .map(LedgerResponse::fromEntity)
+                .toList();
+
+        return ResponseEntity.ok(ledger);
     }
 }
