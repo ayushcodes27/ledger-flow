@@ -2,6 +2,9 @@ package com.project.ledgerflow.entity;
 
 import com.project.ledgerflow.entity.enums.TransactionStatus;
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -9,6 +12,9 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "transaction")
+@Getter
+@Setter
+@NoArgsConstructor
 public class Transaction {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

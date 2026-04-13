@@ -2,11 +2,17 @@ package com.project.ledgerflow.entity;
 
 import com.project.ledgerflow.entity.enums.SagaStepStatus;
 import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.util.UUID;
 
 @Entity
 @Table(name = "saga_state")
+@Getter
+@Setter
+@NoArgsConstructor
 public class SagaState {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
