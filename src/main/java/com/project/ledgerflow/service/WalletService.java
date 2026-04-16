@@ -11,11 +11,16 @@ import com.project.ledgerflow.repository.LedgerEntryRepository;
 import com.project.ledgerflow.repository.OutboxEventRepository;
 import com.project.ledgerflow.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+import static org.springframework.data.jpa.domain.AbstractPersistable_.id;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +30,7 @@ public class WalletService {
     private final LedgerEntryRepository ledgerEntryRepository;
     private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final OutboxEventRepository outboxEventRepository;
+    private final RedissonClient redissonClient;
 
     @Transactional
     public Wallet createWallet(String currency){
@@ -73,34 +79,54 @@ public class WalletService {
     public Wallet debit(UUID walletId,  BigDecimal amount, String idempotencyKey){
         processIdempotency(idempotencyKey);
 
+
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Debit amount must be greater than zero");
         }
+        String lockKey = "wallet-lock:" + walletId;
+        RLock lock = redissonClient.getLock(lockKey);
 
-        Wallet wallet = getWallet(walletId);
+        try{
+            boolean isLocked = lock.tryLock(5, TimeUnit.SECONDS);
+            if (!isLocked) {
+                throw new RuntimeException("System busy: Could not acquire lock for wallet " + id);
+            }
+            try{
+                Wallet wallet = getWallet(walletId);
 
-        // Check for sufficient funds
-        if (wallet.getBalance().compareTo(amount) < 0) {
-            throw new RuntimeException("Insufficient funds. Current balance: " + wallet.getBalance());
+                // Check for sufficient funds
+                if (wallet.getBalance().compareTo(amount) < 0) {
+                    throw new RuntimeException("Insufficient funds. Current balance: " + wallet.getBalance());
+                }
+
+                wallet.setBalance(wallet.getBalance().subtract(amount));
+                Wallet savedWallet = walletRepository.save(wallet);
+
+                LedgerEntry entry = LedgerEntry.builder()
+                        .walletId(savedWallet.getId())
+                        .amount(amount)
+                        .type(TransactionType.DEBIT)
+                        .build();
+                ledgerEntryRepository.save(entry);
+
+                saveOutboxEvent(
+                        wallet.getId(),
+                        "wallet.debited",
+                        buildWalletEventPayload(wallet.getId(), amount, "DEBIT")
+                );
+
+                return savedWallet;
+            }
+            finally {
+                if (lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                }
+            }
         }
-
-        wallet.setBalance(wallet.getBalance().subtract(amount));
-        Wallet savedWallet = walletRepository.save(wallet);
-
-        LedgerEntry entry = LedgerEntry.builder()
-                .walletId(savedWallet.getId())
-                .amount(amount)
-                .type(TransactionType.DEBIT)
-                .build();
-        ledgerEntryRepository.save(entry);
-
-        saveOutboxEvent(
-                wallet.getId(),
-                "wallet.debited",
-                buildWalletEventPayload(wallet.getId(), amount, "DEBIT")
-        );
-
-        return savedWallet;
+        catch (InterruptedException e){
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Thread interrupted while waiting for lock", e);
+        }
     }
 
     private void processIdempotency(String idempotencyKey) {
