@@ -1,11 +1,24 @@
 server:
   port: 8088
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5454/mini_wallet
     username: wallet_user
     password: wallet_password
+
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+  task:
+    scheduling:
+      pool:
+        size: 1

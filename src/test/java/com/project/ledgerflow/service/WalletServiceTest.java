@@ -3,6 +3,7 @@ package com.project.ledgerflow.service;
 import com.project.ledgerflow.model.Wallet;
 import com.project.ledgerflow.repository.IdempotencyKeyRepository;
 import com.project.ledgerflow.repository.LedgerEntryRepository;
+import com.project.ledgerflow.repository.OutboxEventRepository;
 import com.project.ledgerflow.repository.WalletRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +32,8 @@ class WalletServiceTest {
     private LedgerEntryRepository ledgerEntryRepository;
     @Mock
     private IdempotencyKeyRepository idempotencyKeyRepository;
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
 
     @InjectMocks
     private WalletService walletService;

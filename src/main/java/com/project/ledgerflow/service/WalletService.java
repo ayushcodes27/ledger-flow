@@ -2,16 +2,17 @@ package com.project.ledgerflow.service;
 
 import com.project.ledgerflow.entity.IdempotencyKey;
 import com.project.ledgerflow.entity.LedgerEntry;
+import com.project.ledgerflow.entity.OutboxEvent;
 import com.project.ledgerflow.entity.TransactionType;
 import com.project.ledgerflow.exception.IdempotencyException;
 import com.project.ledgerflow.model.Wallet;
 import com.project.ledgerflow.repository.IdempotencyKeyRepository;
 import com.project.ledgerflow.repository.LedgerEntryRepository;
+import com.project.ledgerflow.repository.OutboxEventRepository;
 import com.project.ledgerflow.repository.WalletRepository;
-//import jakarta.transaction.Transactional;
-import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -23,6 +24,7 @@ public class WalletService {
     private final WalletRepository walletRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
     private final IdempotencyKeyRepository idempotencyKeyRepository;
+    private final OutboxEventRepository outboxEventRepository;
 
     @Transactional
     public Wallet createWallet(String currency){
@@ -58,6 +60,12 @@ public class WalletService {
                 .build();
         ledgerEntryRepository.save(entry);
 
+        saveOutboxEvent(
+                wallet.getId(),
+                "wallet.credited",
+                buildWalletEventPayload(wallet.getId(), amount, "CREDIT")
+        );
+
         return savedWallet;
     }
 
@@ -86,6 +94,12 @@ public class WalletService {
                 .build();
         ledgerEntryRepository.save(entry);
 
+        saveOutboxEvent(
+                wallet.getId(),
+                "wallet.debited",
+                buildWalletEventPayload(wallet.getId(), amount, "DEBIT")
+        );
+
         return savedWallet;
     }
 
@@ -98,5 +112,23 @@ public class WalletService {
 
         // If it doesn't exist, save it so it can never be used again
         idempotencyKeyRepository.save(new IdempotencyKey(idempotencyKey, null));
+    }
+
+    private void saveOutboxEvent(UUID walletId, String eventType, String payload){
+        OutboxEvent event = new OutboxEvent();
+        event.setAggregateId(walletId.toString());
+        event.setAggregateType("WALLET");
+        event.setEventType(eventType);
+        event.setPayload(payload);
+        outboxEventRepository.save(event);
+    }
+
+    private String buildWalletEventPayload(UUID walletId, BigDecimal amount, String action) {
+        return String.format(
+                "{\"walletId\":\"%s\",\"amount\":%s,\"action\":\"%s\"}",
+                walletId,
+                amount.toPlainString(),
+                action
+        );
     }
 }
