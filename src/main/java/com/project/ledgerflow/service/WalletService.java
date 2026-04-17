@@ -14,13 +14,13 @@ import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-
-import static org.springframework.data.jpa.domain.AbstractPersistable_.id;
 
 @Service
 @RequiredArgsConstructor
@@ -54,25 +54,26 @@ public class WalletService {
         if(amount.compareTo(BigDecimal.ZERO) <= 0){
             throw new IllegalArgumentException("Credit amount must be greater than zero");
         }
+        return withWalletLock(walletId, () -> {
+            Wallet wallet = getWallet(walletId);
+            wallet.setBalance(wallet.getBalance().add(amount));
+            Wallet savedWallet = walletRepository.save(wallet);
 
-        Wallet wallet = getWallet(walletId);
-        wallet.setBalance(wallet.getBalance().add(amount));
-        Wallet savedWallet = walletRepository.save(wallet);
+            LedgerEntry entry = LedgerEntry.builder()
+                    .walletId(savedWallet.getId())
+                    .amount(amount)
+                    .type(TransactionType.CREDIT)
+                    .build();
+            ledgerEntryRepository.save(entry);
 
-        LedgerEntry entry = LedgerEntry.builder()
-                .walletId(savedWallet.getId())
-                .amount(amount)
-                .type(TransactionType.CREDIT)
-                .build();
-        ledgerEntryRepository.save(entry);
+            saveOutboxEvent(
+                    wallet.getId(),
+                    "wallet.credited",
+                    buildWalletEventPayload(wallet.getId(), amount, "CREDIT")
+            );
 
-        saveOutboxEvent(
-                wallet.getId(),
-                "wallet.credited",
-                buildWalletEventPayload(wallet.getId(), amount, "CREDIT")
-        );
-
-        return savedWallet;
+            return savedWallet;
+        });
     }
 
     @Transactional
@@ -83,50 +84,32 @@ public class WalletService {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Debit amount must be greater than zero");
         }
-        String lockKey = "wallet-lock:" + walletId;
-        RLock lock = redissonClient.getLock(lockKey);
+        return withWalletLock(walletId, () -> {
+            Wallet wallet = getWallet(walletId);
 
-        try{
-            boolean isLocked = lock.tryLock(5, TimeUnit.SECONDS);
-            if (!isLocked) {
-                throw new RuntimeException("System busy: Could not acquire lock for wallet " + id);
+            // Check for sufficient funds
+            if (wallet.getBalance().compareTo(amount) < 0) {
+                throw new RuntimeException("Insufficient funds. Current balance: " + wallet.getBalance());
             }
-            try{
-                Wallet wallet = getWallet(walletId);
 
-                // Check for sufficient funds
-                if (wallet.getBalance().compareTo(amount) < 0) {
-                    throw new RuntimeException("Insufficient funds. Current balance: " + wallet.getBalance());
-                }
+            wallet.setBalance(wallet.getBalance().subtract(amount));
+            Wallet savedWallet = walletRepository.save(wallet);
 
-                wallet.setBalance(wallet.getBalance().subtract(amount));
-                Wallet savedWallet = walletRepository.save(wallet);
+            LedgerEntry entry = LedgerEntry.builder()
+                    .walletId(savedWallet.getId())
+                    .amount(amount)
+                    .type(TransactionType.DEBIT)
+                    .build();
+            ledgerEntryRepository.save(entry);
 
-                LedgerEntry entry = LedgerEntry.builder()
-                        .walletId(savedWallet.getId())
-                        .amount(amount)
-                        .type(TransactionType.DEBIT)
-                        .build();
-                ledgerEntryRepository.save(entry);
+            saveOutboxEvent(
+                    wallet.getId(),
+                    "wallet.debited",
+                    buildWalletEventPayload(wallet.getId(), amount, "DEBIT")
+            );
 
-                saveOutboxEvent(
-                        wallet.getId(),
-                        "wallet.debited",
-                        buildWalletEventPayload(wallet.getId(), amount, "DEBIT")
-                );
-
-                return savedWallet;
-            }
-            finally {
-                if (lock.isHeldByCurrentThread()) {
-                    lock.unlock();
-                }
-            }
-        }
-        catch (InterruptedException e){
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Thread interrupted while waiting for lock", e);
-        }
+            return savedWallet;
+        });
     }
 
     private void processIdempotency(String idempotencyKey) {
@@ -156,5 +139,44 @@ public class WalletService {
                 amount.toPlainString(),
                 action
         );
+    }
+
+    private <T> T withWalletLock(UUID walletId, LockedOperation<T> operation) {
+        String lockKey = "wallet-lock:" + walletId;
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean unlockOnCompletion = false;
+
+        try {
+            boolean isLocked = lock.tryLock(5, TimeUnit.SECONDS);
+            if (!isLocked) {
+                throw new RuntimeException("System busy: Could not acquire lock for wallet " + walletId);
+            }
+
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                unlockOnCompletion = true;
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (lock.isHeldByCurrentThread()) {
+                            lock.unlock();
+                        }
+                    }
+                });
+            }
+
+            return operation.run();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Thread interrupted while waiting for lock", e);
+        } finally {
+            if (!unlockOnCompletion && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface LockedOperation<T> {
+        T run();
     }
 }

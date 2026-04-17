@@ -26,6 +26,7 @@ public class SagaState {
     @Column(nullable = false)
     private SagaStepStatus currentStep;
 
+    @Column(length = 1000)
     private String errorMessage;
 
     @Version

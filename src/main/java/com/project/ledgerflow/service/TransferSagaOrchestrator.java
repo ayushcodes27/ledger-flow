@@ -44,59 +44,68 @@ public class TransferSagaOrchestrator {
 
         return tx.getId();
     }
-    public void executeTransfer(UUID transactionId) {
+    public TransferExecutionResult executeTransfer(UUID transactionId) {
+        TransferExecutionCommand command = transactionRepository.findExecutionCommandById(transactionId)
+                .orElseThrow(() -> new RuntimeException("Transaction not found: " + transactionId));
         SagaState state = sagaStateRepository.findByTransactionId(transactionId)
-                .orElseThrow(() -> new RuntimeException("Saga State not found"));
-        Transaction tx = state.getTransaction();
+                .orElseThrow(() -> new RuntimeException("Saga State not found for transaction: " + transactionId));
 
         try {
             //1: Debit Source Wallet
-            state.setCurrentStep(SagaStepStatus.DEBIT_PENDING);
-            sagaStateRepository.save(state);
+            state = saveState(state, SagaStepStatus.DEBIT_PENDING, null);
 
-            String debitKey = tx.getId().toString() + "-debit";
-            walletService.debit(tx.getSourceWalletId(), tx.getAmount(), debitKey);
+            String debitKey = command.transactionId().toString() + "-debit";
+            walletService.debit(command.sourceWalletId(), command.amount(), debitKey);
 
-            state.setCurrentStep(SagaStepStatus.DEBIT_SUCCESS);
-            sagaStateRepository.save(state);
+            state = saveState(state, SagaStepStatus.DEBIT_SUCCESS, null);
 
             //2: Credit Target Wallet
             try {
-                state.setCurrentStep(SagaStepStatus.CREDIT_PENDING);
-                sagaStateRepository.save(state);
+                state = saveState(state, SagaStepStatus.CREDIT_PENDING, null);
 
-                String creditKey = tx.getId().toString() + "-credit";
-                walletService.credit(tx.getTargetWalletId(), tx.getAmount(), creditKey);
+                String creditKey = command.transactionId().toString() + "-credit";
+                walletService.credit(command.targetWalletId(), command.amount(), creditKey);
 
                 // SAGA Succes
-                state.setCurrentStep(SagaStepStatus.COMPLETED);
-                tx.setStatus(TransactionStatus.COMPLETED);
-                sagaStateRepository.save(state);
-                transactionRepository.save(tx);
+                state = saveState(state, SagaStepStatus.COMPLETED, null);
+                transactionRepository.updateStatusById(command.transactionId(), TransactionStatus.COMPLETED);
+                return new TransferExecutionResult(command.transactionId(), TransactionStatus.COMPLETED, null);
 
             } catch (Exception e) {
                 // 3: Compensating transaction (Refund Source)
                 // If crediting the target fails , we must refund the source
-                state.setCurrentStep(SagaStepStatus.COMPENSATING_DEBIT);
-                state.setErrorMessage("Credit failed: " + e.getMessage() + ". Initiating refund.");
-                sagaStateRepository.save(state);
+                state = saveState(
+                        state,
+                        SagaStepStatus.COMPENSATING_DEBIT,
+                        "Credit failed: " + e.getMessage() + ". Initiating refund."
+                );
 
-                String refundKey = tx.getId().toString() + "-refund";
-                walletService.credit(tx.getSourceWalletId(), tx.getAmount(), refundKey); // Refund
+                String refundKey = command.transactionId().toString() + "-refund";
+                walletService.credit(command.sourceWalletId(), command.amount(), refundKey); // Refund
 
-                state.setCurrentStep(SagaStepStatus.COMPENSATION_SUCCESS);
-                tx.setStatus(TransactionStatus.FAILED);
-                sagaStateRepository.save(state);
-                transactionRepository.save(tx);
+                state = saveState(state, SagaStepStatus.COMPENSATION_SUCCESS, null);
+                transactionRepository.updateStatusById(command.transactionId(), TransactionStatus.FAILED);
+                return new TransferExecutionResult(command.transactionId(), TransactionStatus.FAILED, state.getErrorMessage());
             }
 
         } catch (Exception e) {
             // If the initial debit fails, the whole transaction simply fails. No refund needed.
-            state.setCurrentStep(SagaStepStatus.FAILED);
-            state.setErrorMessage("Debit failed: " + e.getMessage());
-            tx.setStatus(TransactionStatus.FAILED);
-            sagaStateRepository.save(state);
-            transactionRepository.save(tx);
+            state = saveState(state, SagaStepStatus.FAILED, "Debit failed: " + e.getMessage());
+            transactionRepository.updateStatusById(command.transactionId(), TransactionStatus.FAILED);
+            return new TransferExecutionResult(command.transactionId(), TransactionStatus.FAILED, state.getErrorMessage());
         }
+    }
+
+    private SagaState saveState(SagaState state, SagaStepStatus step, String errorMessage) {
+        state.setCurrentStep(step);
+        state.setErrorMessage(truncate(errorMessage, 1000));
+        return sagaStateRepository.save(state);
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 }
