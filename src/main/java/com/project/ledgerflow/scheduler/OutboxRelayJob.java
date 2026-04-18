@@ -2,16 +2,21 @@ package com.project.ledgerflow.scheduler;
 
 import com.project.ledgerflow.entity.OutboxEvent;
 import com.project.ledgerflow.repository.OutboxEventRepository;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Component
 public class OutboxRelayJob {
+
+    private static final Logger log = LoggerFactory.getLogger(OutboxRelayJob.class);
     private final OutboxEventRepository outboxEventRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
 
@@ -20,38 +25,48 @@ public class OutboxRelayJob {
         this.kafkaTemplate = kafkaTemplate;
     }
 
-    /**
-     * Runs every 5000 milliseconds (5 seconds).
-     * The @Transactional ensures that if Kafka is down and throws an exception,
-     * the database updates (event.setProcessed(true)) will roll back automatically!
-     */
-    /*
-    SELECT *
-    FROM outbox_event
-    WHERE processed = FALSE
-    ORDER BY created_at ASC;
-    */
     @Scheduled(fixedDelay = 5000)
     @Transactional
-    public void relayEventsToKafka(){
-        List<OutboxEvent> pendingEvents = outboxEventRepository.findByProcessedFalseOrderByCreatedAtAsc();
+    public void relayEventsToKafka() {
+        // Fetching in batches of 50 to prevent JVM OutOfMemory errors
+        List<OutboxEvent> pendingEvents = outboxEventRepository.findTop50ByProcessedFalseOrderByCreatedAtAsc();
 
         if (pendingEvents.isEmpty()) {
             return;
         }
 
+        log.info("Relaying {} outbox events to Kafka...", pendingEvents.size());
+
         for (OutboxEvent event : pendingEvents) {
+            try {
+                String topic = event.getEventType();
 
-            // We use the event_type as the Kafka Topic (e.g., "wallet.debited")
-            // We use the aggregate_id (Wallet ID) as the Kafka Key to guarantee ordering
-            // We send the JSON payload as the message
-            kafkaTemplate.send(event.getEventType(), event.getAggregateId(), event.getPayload());
+                // The Kafka KEY: aggregateId keeps ordering stable per aggregate
+                String key = event.getAggregateId();
 
-            // Mark as processed
-            event.setProcessed(true);
+                // The Kafka VALUE is the event-specific payload contract
+                String value = event.getPayload();
+
+                // Construct the record with Topic, Key, and Value
+                ProducerRecord<String, String> record = new ProducerRecord<>(topic, key, value);
+
+                // Inject the Idempotency Key
+                record.headers().add("eventId", event.getId().toString().getBytes(StandardCharsets.UTF_8));
+                record.headers().add("eventType", event.getEventType().getBytes(StandardCharsets.UTF_8));
+
+                kafkaTemplate.send(record).get();
+
+                event.setProcessed(true);
+            } catch (Exception e) {
+                log.error("Failed to publish outbox event [{}] to Kafka. Halting batch.", event.getId(), e);
+                // Break the loop. The DB transaction will rollback, and we will retry in 5 seconds.
+                // This guarantees strict ordering is maintained.
+                throw new RuntimeException("Kafka publish failed, triggering rollback", e);
+            }
         }
-        outboxEventRepository.saveAll(pendingEvents);
 
-        System.out.println("Relayed " + pendingEvents.size() + " outbox events to Kafka.");
+        // Save the successful ones back to the DB
+        outboxEventRepository.saveAll(pendingEvents);
+        log.info("Successfully relayed {} outbox events.", pendingEvents.size());
     }
 }

@@ -9,11 +9,5 @@ import java.util.UUID;
 
 @Repository
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
-
-    // will use this in the next step to fetch events that need to go to Kafka
-    // SELECT *
-    // FROM outbox_events
-    // WHERE processed = false
-    // ORDER BY created_at ASC;
-    List<OutboxEvent> findByProcessedFalseOrderByCreatedAtAsc();
+    List<OutboxEvent> findTop50ByProcessedFalseOrderByCreatedAtAsc();
 }

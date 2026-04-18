@@ -32,9 +32,6 @@ public class TransferController {
                 request.amount()
         );
 
-        //Execute the SAGA
-        orchestrator.executeTransfer(transactionId);
-
         // 3. Return 202 Accepted
         return ResponseEntity.accepted().body(Map.of(
                 "transactionId", transactionId,
