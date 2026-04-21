@@ -5,17 +5,24 @@ import com.project.ledgerflow.repository.IdempotencyKeyRepository;
 import com.project.ledgerflow.repository.LedgerEntryRepository;
 import com.project.ledgerflow.repository.OutboxEventRepository;
 import com.project.ledgerflow.repository.WalletRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -34,9 +41,20 @@ class WalletServiceTest {
     private IdempotencyKeyRepository idempotencyKeyRepository;
     @Mock
     private OutboxEventRepository outboxEventRepository;
+    @Mock
+    private RedissonClient redissonClient;
+    @Mock(answer = Answers.RETURNS_DEFAULTS)
+    private RLock walletLock;
 
     @InjectMocks
     private WalletService walletService;
+
+    @BeforeEach
+    void setUpLocking() throws InterruptedException {
+        when(redissonClient.getLock(anyString())).thenReturn(walletLock);
+        when(walletLock.tryLock(anyLong(), any(TimeUnit.class))).thenReturn(true);
+        when(walletLock.isHeldByCurrentThread()).thenReturn(true);
+    }
 
     @Test
     void debit_Successful_WhenSufficientFunds() {

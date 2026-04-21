@@ -31,3 +31,5 @@ build/
 
 ### VS Code ###
 .vscode/
+
+TRANSFER_DEBUG_REPORT.md

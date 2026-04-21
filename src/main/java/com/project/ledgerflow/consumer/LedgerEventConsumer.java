@@ -6,6 +6,7 @@ import com.project.ledgerflow.service.TransferExecutionResult;
 import com.project.ledgerflow.service.TransferSagaOrchestrator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.messaging.handler.annotation.Header;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
 import java.util.UUID;
 
 @Component
+@ConditionalOnProperty(name = "ledger.kafka.consumer.enabled", havingValue = "true", matchIfMissing = true)
 public class LedgerEventConsumer {
     private static final Logger log = LoggerFactory.getLogger(LedgerEventConsumer.class);
     private final IdempotencyService idempotencyService;

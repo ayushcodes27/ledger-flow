@@ -1,0 +1,12 @@
+ledger:
+  kafka:
+    consumer:
+      enabled: false
+  outbox:
+    relay:
+      enabled: false
+
+spring:
+  jpa:
+    show-sql: false
+    open-in-view: false

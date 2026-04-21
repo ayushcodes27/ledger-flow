@@ -1,5 +1,6 @@
 package com.project.ledgerflow.ledger;
 
+import com.project.ledgerflow.service.AbstractIntegrationTest;
 import com.project.ledgerflow.model.Wallet;
 import com.project.ledgerflow.repository.IdempotencyKeyRepository;
 import com.project.ledgerflow.repository.LedgerEntryRepository;
@@ -14,8 +15,6 @@ import com.project.ledgerflow.service.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -27,9 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@SpringBootTest
-@ActiveProfiles("test") // Make sure you have an application-test.yml using Testcontainers or an H2 in-memory DB
-public class LedgerConcurrencyIntegrationTest {
+public class LedgerConcurrencyIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private TransferSagaOrchestrator transferSagaOrchestrator;
