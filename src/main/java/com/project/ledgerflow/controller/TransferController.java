@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/transfers")
+@RequestMapping("/api/v1/transfers")
 public class TransferController {
 
     private final TransferSagaOrchestrator orchestrator;

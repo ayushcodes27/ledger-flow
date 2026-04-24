@@ -32,9 +32,9 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
-        registry.add("spring.redis.host", redis::getHost);
-        registry.add("spring.redis.port", () -> redis.getMappedPort(6379));
-        registry.add("spring.redis.password", () -> "");
+        registry.add("spring.data.redis.host", redis::getHost);
+        registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
+        registry.add("spring.data.redis.password", () -> "");
         registry.add("spring.task.scheduling.enabled", () -> false);
         registry.add("spring.kafka.listener.auto-startup", () -> false);
     }

@@ -28,7 +28,20 @@ spring:
       pool:
         size: 1
 
-  redis:
-    host: localhost
-    port: 6379
-    password: wallet_redis_password
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: wallet_redis_password
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include:
+          - health
+          - metrics
+          - info
+  endpoint:
+    health:
+      show-details: always

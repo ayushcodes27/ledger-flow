@@ -30,7 +30,7 @@ public class WalletController {
         return ResponseEntity.status(HttpStatus.CREATED).body(WalletResponse.fromEntity(wallet));
     }
 
-    @GetMapping("api/v1/{id}")
+    @GetMapping("/{id}")
     public ResponseEntity<WalletResponse> getWallet(@PathVariable UUID id){
         Wallet wallet = walletService.getWallet(id);
         return ResponseEntity.ok(WalletResponse.fromEntity(wallet));
