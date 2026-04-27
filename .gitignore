@@ -33,3 +33,4 @@ build/
 .vscode/
 
 TRANSFER_DEBUG_REPORT.md
+ledgerflow_technical_reference.md
