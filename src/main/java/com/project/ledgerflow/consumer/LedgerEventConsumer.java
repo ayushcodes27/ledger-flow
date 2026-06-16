@@ -1,8 +1,9 @@
 package com.project.ledgerflow.consumer;
 
-import com.project.ledgerflow.entity.enums.TransactionStatus;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.project.ledgerflow.entity.enums.SagaStepStatus;
 import com.project.ledgerflow.service.IdempotencyService;
-import com.project.ledgerflow.service.TransferExecutionResult;
 import com.project.ledgerflow.service.TransferSagaOrchestrator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +15,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
+import java.util.function.Supplier;
 
 @Component
 @ConditionalOnProperty(name = "ledger.kafka.consumer.enabled", havingValue = "true", matchIfMissing = true)
@@ -21,56 +23,98 @@ public class LedgerEventConsumer {
     private static final Logger log = LoggerFactory.getLogger(LedgerEventConsumer.class);
     private final IdempotencyService idempotencyService;
     private final TransferSagaOrchestrator transferSagaOrchestrator;
+    private final ObjectMapper objectMapper;
 
     public LedgerEventConsumer(IdempotencyService idempotencyService,
-                               TransferSagaOrchestrator transferSagaOrchestrator) {
+                               TransferSagaOrchestrator transferSagaOrchestrator,
+                               ObjectMapper objectMapper) {
         this.idempotencyService = idempotencyService;
         this.transferSagaOrchestrator = transferSagaOrchestrator;
+        this.objectMapper = objectMapper;
     }
 
-    @KafkaListener(
-            topics = "transfer.initiated",
-            containerFactory = "manualAckKafkaListenerContainerFactory" // Bind to our custom factory
-    )
-    public void consumeLedgerEvent(
-            @Payload String eventPayload,
-            @Header(name = "eventId", required = false) String eventId,
-            Acknowledgment ack) {
+    @KafkaListener(topics = "transfer.initiated", containerFactory = "manualAckKafkaListenerContainerFactory")
+    public void consumeTransferInitiated(@Payload String payload, @Header(name = "eventId") String eventId, Acknowledgment ack) {
+        UUID txId = UUID.fromString(payload.trim());
+        processEvent(eventId, payload, ack, 
+            () -> transferSagaOrchestrator.handleTransferInitiated(txId),
+            () -> transferSagaOrchestrator.isStepCompleted(txId, SagaStepStatus.INITIATED)
+        );
+    }
 
-        String effectiveEventId = (eventId == null || eventId.isBlank()) ? eventPayload : eventId;
-        log.info("Received event [{}] with payload [{}]", effectiveEventId, eventPayload);
+    @KafkaListener(topics = "wallet.debited", containerFactory = "manualAckKafkaListenerContainerFactory")
+    public void consumeWalletDebited(@Payload String payload, @Header(name = "eventId") String eventId, Acknowledgment ack) {
+        UUID txId = extractTransactionId(payload);
+        if (txId != null) {
+            processEvent(eventId, payload, ack, 
+                () -> transferSagaOrchestrator.handleDebitCompleted(txId),
+                () -> transferSagaOrchestrator.isStepCompleted(txId, SagaStepStatus.DEBIT_COMPLETED)
+            );
+        } else {
+            log.info("Skipping wallet.debited event with no transactionId");
+            ack.acknowledge();
+        }
+    }
 
-        // Check Idempotency
-        if (!idempotencyService.checkAndSetEvent(effectiveEventId)) {
-            log.warn("Duplicate event detected [{}]. Skipping processing.", effectiveEventId);
-            ack.acknowledge(); // Tell Kafka we are done with it so it doesn't retry
+    @KafkaListener(topics = "wallet.credited", containerFactory = "manualAckKafkaListenerContainerFactory")
+    public void consumeWalletCredited(@Payload String payload, @Header(name = "eventId") String eventId, Acknowledgment ack) {
+        UUID txId = extractTransactionId(payload);
+        if (txId != null) {
+            processEvent(eventId, payload, ack, 
+                () -> transferSagaOrchestrator.handleCreditCompleted(txId),
+                () -> transferSagaOrchestrator.isStepCompleted(txId, SagaStepStatus.CREDIT_COMPLETED)
+            );
+        } else {
+            log.info("Skipping wallet.credited event with no transactionId");
+            ack.acknowledge();
+        }
+    }
+
+    private void processEvent(String eventId, String payload, Acknowledgment ack, Runnable action, Supplier<Boolean> isAlreadyDone) {
+        log.info("Received event [{}] with payload [{}]", eventId, payload);
+
+        if (!idempotencyService.checkAndSetEvent(eventId)) {
+            if (isAlreadyDone.get()) {
+                log.info("Duplicate event [{}] detected but work is already confirmed in DB. Acknowledging.", eventId);
+                ack.acknowledge();
+                return;
+            }
+            log.warn("Duplicate event detected [{}]. Work NOT yet completed in DB. Potential crash recovery needed. Rejecting for retry.", eventId);
             return;
         }
 
         try {
-            TransferExecutionResult result =
-                    transferSagaOrchestrator.executeTransfer(UUID.fromString(eventPayload.trim()));
-
-            log.info("Transfer execution result: transactionId={}, status={}, errorMessage={}",
-                    result.transactionId(), result.status(), result.errorMessage());
-
-            if (result.status() != TransactionStatus.COMPLETED) {
-                throw new RuntimeException("Transfer execution failed for transactionId="
-                        + result.transactionId() + ": " + result.errorMessage());
-            }
-
-            //  Acknowledge ONLY on success
+            action.run();
             ack.acknowledge();
-            log.info("Successfully processed and acknowledged event [{}]", effectiveEventId);
-
+            log.info("Successfully processed event [{}]", eventId);
         } catch (Exception e) {
-            log.error("Failed to process event [{}]. Removing idempotency key and rejecting.", effectiveEventId, e);
-            // Rollback Idempotency Key so a subsequent retry can attempt processing again
-            idempotencyService.removeEvent(effectiveEventId);
-
-            // DO NOT call ack.acknowledge() here.
-            // By not acknowledging, Kafka will eventually re-deliver this message.
-            throw e;
+            log.error("Failed to process event [{}].", eventId, e);
+            
+            if (isPermanentFailure(e)) {
+                log.error("Permanent failure detected for event [{}]. ACKing to stop poison pill loop.", eventId);
+                ack.acknowledge(); 
+            } else {
+                idempotencyService.removeEvent(eventId);
+                throw e; 
+            }
         }
     }
+
+    private boolean isPermanentFailure(Exception e) {
+        return e instanceof IllegalArgumentException || e.getMessage().contains("Permanent");
+    }
+
+    private UUID extractTransactionId(String payload) {
+        try {
+            JsonNode node = objectMapper.readTree(payload);
+            JsonNode txNode = node.get("transactionId");
+            if (txNode != null && !txNode.isNull()) {
+                return UUID.fromString(txNode.asText());
+            }
+        } catch (Exception e) {
+            log.error("Failed to extract transactionId from payload: {}", payload, e);
+        }
+        return null;
+    }
 }
+

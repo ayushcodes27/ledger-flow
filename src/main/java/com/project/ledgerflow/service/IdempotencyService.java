@@ -9,21 +9,15 @@ import java.time.Duration;
 public class IdempotencyService {
     private final StringRedisTemplate redisTemplate;
     private static final String IDEMPOTENCY_PREFIX = "ledger:processed_event:";
-    private static final Duration TTL = Duration.ofDays(7);
+    private static final Duration TTL = Duration.ofMinutes(30); // Reduced for faster crash recovery
 
     public IdempotencyService(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
     }
 
-    /**
-     * Atomically checks if an event ID exists, and if not, sets it.
-     * @return true if the event is NEW and should be processed. false if it's a DUPLICATE.
-     */
     public boolean checkAndSetEvent(String eventId) {
         String key = IDEMPOTENCY_PREFIX + eventId;
-        // setIfAbsent is atomic. It prevents race conditions if two consumer threads
-        // read the exact same duplicate message simultaneously.
-        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(key, "PROCESSED", TTL);
+        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(key, "PROCESSING", TTL);
         return Boolean.TRUE.equals(isNew);
     }
 
@@ -31,3 +25,4 @@ public class IdempotencyService {
         redisTemplate.delete(IDEMPOTENCY_PREFIX + eventId);
     }
 }
+

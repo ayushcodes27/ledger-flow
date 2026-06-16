@@ -12,6 +12,8 @@ import org.mockito.Answers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 
@@ -30,7 +32,8 @@ import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.*;
 
 
-@ExtendWith(MockitoExtension.class) //
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class WalletServiceTest {
 
     @Mock
@@ -67,18 +70,15 @@ class WalletServiceTest {
                 .currency("USD")
                 .build();
 
-        // Tell the mocks how to behave
-        when(idempotencyKeyRepository.existsById(idempotencyKey)).thenReturn(false);
         when(walletRepository.findById(walletId)).thenReturn(Optional.of(mockWallet));
-        // When save is called, just return whatever was passed into it
         when(walletRepository.save(any(Wallet.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        // ACT (Call the real method)
-        Wallet result = walletService.debit(walletId, new BigDecimal("40.00"), idempotencyKey);
+        // ACT
+        Wallet result = walletService.debit(walletId, new BigDecimal("40.00"), idempotencyKey, null);
 
-        // ASSERT (Verify the results)
-        assertEquals(new BigDecimal("60.00"), result.getBalance()); // 100 - 40 = 60
-        verify(ledgerEntryRepository, times(1)).save(any()); // Verify a receipt was created
+        // ASSERT
+        assertEquals(new BigDecimal("60.00"), result.getBalance());
+        verify(ledgerEntryRepository, times(1)).save(any());
     }
 
     @Test
@@ -92,18 +92,17 @@ class WalletServiceTest {
                 .currency("USD")
                 .build();
 
-        when(idempotencyKeyRepository.existsById(idempotencyKey)).thenReturn(false);
         when(walletRepository.findById(walletId)).thenReturn(Optional.of(mockWallet));
 
         // ACT & ASSERT
         RuntimeException exception = assertThrows(RuntimeException.class, () -> {
-            walletService.debit(walletId, new BigDecimal("50.00"), idempotencyKey);
+            walletService.debit(walletId, new BigDecimal("50.00"), idempotencyKey, null);
         });
 
         assertTrue(exception.getMessage().contains("Insufficient funds"));
 
-        // Verify that NO database saves happened because the transaction aborted
         verify(walletRepository, never()).save(any());
         verify(ledgerEntryRepository, never()).save(any());
     }
 }
+

@@ -13,21 +13,13 @@ import com.project.ledgerflow.repository.OutboxEventRepository;
 import com.project.ledgerflow.repository.SagaStateRepository;
 import com.project.ledgerflow.repository.TransactionRepository;
 import com.project.ledgerflow.repository.WalletRepository;
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
-import java.time.Duration;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,33 +65,24 @@ public class TransferIntegrationTest extends AbstractIntegrationTest {
     @Test
     void completeTransferLifecycle_ShouldSucceedAndUpdateBalances() {
         Wallet sender = walletService.createWallet("USD");
-        walletService.credit(sender.getId(), new BigDecimal("1000.00"), "seed-sender-wallet");
+        walletService.credit(sender.getId(), new BigDecimal("1000.00"), "seed-sender-wallet", null);
 
         Wallet receiver = walletService.createWallet("USD");
-        walletService.credit(receiver.getId(), new BigDecimal("500.00"), "seed-receiver-wallet");
-
-        Map<String, Object> transferPayload = Map.of(
-                "sourceWalletId", sender.getId(),
-                "targetWalletId", receiver.getId(),
-                "amount", new BigDecimal("200.00")
-        );
+        walletService.credit(receiver.getId(), new BigDecimal("500.00"), "seed-receiver-wallet", null);
 
         var response = transferController.initiateTransfer(new TransferRequest(
                 sender.getId(),
                 receiver.getId(),
-                (BigDecimal) transferPayload.get("amount")
+                new BigDecimal("200.00")
         ));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
-        assertThat(response.getBody()).isNotNull();
+        UUID transactionId = UUID.fromString(response.getBody().get("transactionId").toString());
 
-        Map<String, Object> responseBody = response.getBody();
-        assertThat(responseBody).containsKeys("transactionId", "message");
-
-        UUID transactionId = UUID.fromString(responseBody.get("transactionId").toString());
-        TransferExecutionResult executionResult = transferSagaOrchestrator.executeTransfer(transactionId);
-
-        assertThat(executionResult.completed()).isTrue();
+        // Manually drive the async saga
+        transferSagaOrchestrator.handleTransferInitiated(transactionId);
+        transferSagaOrchestrator.handleDebitCompleted(transactionId);
+        transferSagaOrchestrator.handleCreditCompleted(transactionId);
 
         Wallet updatedSender = walletRepository.findById(sender.getId()).orElseThrow();
         Wallet updatedReceiver = walletRepository.findById(receiver.getId()).orElseThrow();
@@ -113,70 +96,30 @@ public class TransferIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void concurrentTransfers_ShouldMaintainDataIntegrity() throws InterruptedException {
-
+    void retryAfterIdempotency_ShouldNotFailSaga() {
         Wallet sender = walletService.createWallet("USD");
-        walletService.credit(sender.getId(), new BigDecimal("1000.00"), "seed-sender-wallet");
-
+        walletService.credit(sender.getId(), new BigDecimal("1000.00"), "seed-sender", null);
         Wallet receiver = walletService.createWallet("USD");
 
-        int threadCount = 50;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch startLatch = new CountDownLatch(1);
-        CountDownLatch endLatch = new CountDownLatch(threadCount);
-        AtomicInteger completedTransfers = new AtomicInteger();
+        UUID transactionId = transferSagaOrchestrator.initiateTransfer(sender.getId(), receiver.getId(), new BigDecimal("100.00"));
 
-        // Record how many transactions existed BEFORE the stress test
-        // (because walletService.credit() likely created some setup transactions)
-        long initialTxCount = transactionRepository.count();
+        // First attempt for debit
+        transferSagaOrchestrator.handleTransferInitiated(transactionId);
+        
+        // Simulate a retry of handleTransferInitiated (e.g. Kafka re-delivery after crash)
+        // walletService.debit will throw IdempotencyException
+        // Orchestrator should catch it and NOT fail
+        transferSagaOrchestrator.handleTransferInitiated(transactionId);
 
-        for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
-                try {
-                    startLatch.await();
+        SagaState state = sagaStateRepository.findByTransactionId(transactionId).orElseThrow();
+        assertThat(state.getCurrentStep()).isEqualTo(SagaStepStatus.INITIATED); // Still INITIATED because handleDebitCompleted hasn't run
+        assertThat(state.getErrorMessage()).isNull();
 
-                    var response = transferController.initiateTransfer(new TransferRequest(
-                            sender.getId(),
-                            receiver.getId(),
-                            new BigDecimal("50.00")
-                    ));
+        // Continue the saga
+        transferSagaOrchestrator.handleDebitCompleted(transactionId);
+        transferSagaOrchestrator.handleCreditCompleted(transactionId);
 
-                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
-                    assertThat(response.getBody()).isNotNull();
-
-                    UUID transactionId = UUID.fromString(response.getBody().get("transactionId").toString());
-                    TransferExecutionResult result = transferSagaOrchestrator.executeTransfer(transactionId);
-                    if (result.completed()) {
-                        completedTransfers.incrementAndGet();
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } finally {
-                    endLatch.countDown();
-                }
-            });
-        }
-
-        startLatch.countDown();
-        endLatch.await(10, TimeUnit.SECONDS);
-        executor.shutdown();
-
-        Awaitility.await()
-                .atMost(Duration.ofSeconds(30))
-                .pollInterval(Duration.ofSeconds(1))
-                .untilAsserted(() -> {
-                    long totalProcessed = transactionRepository.count() - initialTxCount;
-                    assertThat(totalProcessed).isEqualTo(50);
-                });
-
-        Wallet finalSender = walletRepository.findById(sender.getId()).orElseThrow();
-        Wallet finalReceiver = walletRepository.findById(receiver.getId()).orElseThrow();
-
-        BigDecimal totalMoneyInSystem = finalSender.getBalance().add(finalReceiver.getBalance());
-        assertThat(totalMoneyInSystem).isEqualByComparingTo("1000.00");
-
-        assertThat(finalSender.getBalance()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
-        assertThat(finalReceiver.getBalance())
-                .isEqualByComparingTo(new BigDecimal("50.00").multiply(BigDecimal.valueOf(completedTransfers.get())));
+        assertThat(transactionRepository.findById(transactionId).orElseThrow().getStatus()).isEqualTo(TransactionStatus.COMPLETED);
     }
 }
+

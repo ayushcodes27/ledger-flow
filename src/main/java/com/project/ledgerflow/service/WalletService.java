@@ -13,7 +13,9 @@ import com.project.ledgerflow.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,8 +49,11 @@ public class WalletService {
                 .orElseThrow(() -> new RuntimeException("Wallet not found with ID: " + walletId));
     }
 
-    @Transactional
-    public Wallet credit(UUID walletId, BigDecimal amount, String idempotencyKey){
+    // RED FLAG 1 FIX: REQUIRES_NEW decouples this from the Saga Orchestrator transaction.
+    // If this fails (e.g. Insufficient Funds), ONLY this transaction rolls back.
+    // The Orchestrator can then catch the error and successfully update the SagaState to FAILED.
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = IdempotencyException.class)
+    public Wallet credit(UUID walletId, BigDecimal amount, String idempotencyKey, UUID transactionId){
         processIdempotency(idempotencyKey);
 
         if(amount.compareTo(BigDecimal.ZERO) <= 0){
@@ -69,17 +74,16 @@ public class WalletService {
             saveOutboxEvent(
                     wallet.getId(),
                     "wallet.credited",
-                    buildWalletEventPayload(wallet.getId(), amount, "CREDIT")
+                    buildWalletEventPayload(wallet.getId(), amount, "CREDIT", transactionId)
             );
 
             return savedWallet;
         });
     }
 
-    @Transactional
-    public Wallet debit(UUID walletId,  BigDecimal amount, String idempotencyKey){
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = IdempotencyException.class)
+    public Wallet debit(UUID walletId,  BigDecimal amount, String idempotencyKey, UUID transactionId){
         processIdempotency(idempotencyKey);
-
 
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Debit amount must be greater than zero");
@@ -87,7 +91,6 @@ public class WalletService {
         return withWalletLock(walletId, () -> {
             Wallet wallet = getWallet(walletId);
 
-            // Check for sufficient funds
             if (wallet.getBalance().compareTo(amount) < 0) {
                 throw new RuntimeException("Insufficient funds. Current balance: " + wallet.getBalance());
             }
@@ -105,22 +108,21 @@ public class WalletService {
             saveOutboxEvent(
                     wallet.getId(),
                     "wallet.debited",
-                    buildWalletEventPayload(wallet.getId(), amount, "DEBIT")
+                    buildWalletEventPayload(wallet.getId(), amount, "DEBIT", transactionId)
             );
 
             return savedWallet;
         });
     }
 
+    // RED FLAG 2 FIX: Enforce atomicity via DB unique constraint (PK).
+    // existsById + save is prone to race conditions.
     private void processIdempotency(String idempotencyKey) {
-        if (idempotencyKeyRepository.existsById(idempotencyKey)) {
-            // In a fully mature system, we would return the exact cached response here.
-            // For our scope, throwing a 409 Conflict equivalent currently.
+        try {
+            idempotencyKeyRepository.saveAndFlush(new IdempotencyKey(idempotencyKey, null));
+        } catch (DataIntegrityViolationException e) {
             throw new IdempotencyException("Transaction with Idempotency Key [" + idempotencyKey + "] has already been processed.");
         }
-
-        // If it doesn't exist, save it so it can never be used again
-        idempotencyKeyRepository.save(new IdempotencyKey(idempotencyKey, null));
     }
 
     private void saveOutboxEvent(UUID walletId, String eventType, String payload){
@@ -132,12 +134,13 @@ public class WalletService {
         outboxEventRepository.save(event);
     }
 
-    private String buildWalletEventPayload(UUID walletId, BigDecimal amount, String action) {
+    private String buildWalletEventPayload(UUID walletId, BigDecimal amount, String action, UUID transactionId) {
         return String.format(
-                "{\"walletId\":\"%s\",\"amount\":%s,\"action\":\"%s\"}",
+                "{\"walletId\":\"%s\",\"amount\":%s,\"action\":\"%s\",\"transactionId\":%s}",
                 walletId,
                 amount.toPlainString(),
-                action
+                action,
+                transactionId == null ? "null" : "\"" + transactionId + "\""
         );
     }
 
@@ -180,3 +183,4 @@ public class WalletService {
         T run();
     }
 }
+
