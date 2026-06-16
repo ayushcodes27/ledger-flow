@@ -10,6 +10,10 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.concurrent.CompletableFuture;
+import org.springframework.kafka.support.SendResult;
+import java.util.concurrent.CompletionException;
+import java.util.ArrayList;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -39,32 +43,43 @@ public class OutboxRelayJob {
 
         log.info("Relaying {} outbox events to Kafka...", pendingEvents.size());
 
+        List<CompletableFuture<SendResult<String, String>>> publishFutures = new ArrayList<>();
+
         for (OutboxEvent event : pendingEvents) {
-            try {
-                String topic = event.getEventType();
+            String topic = event.getEventType();
+            String key = event.getAggregateId();
+            String value = event.getPayload();
 
-                // The Kafka KEY: aggregateId keeps ordering stable per aggregate
-                String key = event.getAggregateId();
+            ProducerRecord<String, String> record = new ProducerRecord<>(topic, key, value);
 
-                // The Kafka VALUE is the event-specific payload contract
-                String value = event.getPayload();
+            // Inject the Idempotency Key
+            record.headers().add("eventId", event.getId().toString().getBytes(StandardCharsets.UTF_8));
+            record.headers().add("eventType", event.getEventType().getBytes(StandardCharsets.UTF_8));
 
-                // Construct the record with Topic, Key, and Value
-                ProducerRecord<String, String> record = new ProducerRecord<>(topic, key, value);
+            // Fire asynchronously
+            CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(record);
+            publishFutures.add(future);
 
-                // Inject the Idempotency Key
-                record.headers().add("eventId", event.getId().toString().getBytes(StandardCharsets.UTF_8));
-                record.headers().add("eventType", event.getEventType().getBytes(StandardCharsets.UTF_8));
+            // Update JPA entity state in memory. 
+            // The DB transaction won't commit until the method exits successfully.
+            event.setProcessed(true); 
+        }
 
-                kafkaTemplate.send(record).get();
+        try {
+            // Wait for the entire batch of network I/O to complete concurrently.
+            // This blocks the scheduler thread ONCE per batch, rather than ONCE per message.
+            CompletableFuture.allOf(publishFutures.toArray(new CompletableFuture[0])).join();
+            
+            // If we reach here, ALL messages in the batch were successfully acked by the KRaft cluster.
+            log.debug("Successfully published batch of {} events.", pendingEvents.size());
 
-                event.setProcessed(true);
-            } catch (Exception e) {
-                log.error("Failed to publish outbox event [{}] to Kafka. Halting batch.", event.getId(), e);
-                // Break the loop. The DB transaction will rollback, and we will retry in 5 seconds.
-                // This guarantees strict ordering is maintained.
-                throw new RuntimeException("Kafka publish failed, triggering rollback", e);
-            }
+        } catch (CompletionException e) {
+            // A CompletionException wraps the actual Kafka producer exception.
+            log.error("Failed to publish outbox batch. Halting and triggering DB rollback to maintain strict ordering.", e.getCause());
+            
+            // Throwing this RuntimeException triggers the Spring @Transactional rollback.
+            // The events remain 'PENDING' in the DB and will be retried in strict order.
+            throw new RuntimeException("Kafka batch publish failed, triggering rollback", e.getCause());
         }
 
         // Save the successful ones back to the DB

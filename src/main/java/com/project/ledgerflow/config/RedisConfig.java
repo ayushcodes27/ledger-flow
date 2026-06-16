@@ -26,7 +26,10 @@ public class RedisConfig {
     public RedissonClient redissonClient() {
         Config config = new Config();
         var singleServerConfig = config.useSingleServer()
-                .setAddress("redis://" + host + ":" + port);
+                .setAddress("redis://" + host + ":" + port)
+                .setTimeout(3000)        // Wait 3 seconds for a response
+                .setRetryAttempts(3)     // Try 3 times before giving up
+                .setRetryInterval(1500); // Wait 1.5 seconds between retries
 
         if (password != null && !password.isBlank()) {
             singleServerConfig.setPassword(password);
