@@ -15,13 +15,13 @@ flowchart TD
     Consumer -->|"7. Update Balances &\nWrite Next Event"| DB
     Consumer -.->|"Compensation:\nRefund source wallet on failure"| DB
 
-    style Client fill:#ccc,stroke:#333
-    style API fill:#add8e6,stroke:#333
-    style DB fill:#90ee90,stroke:#333
-    style Relay fill:#ffffe0,stroke:#333
-    style Kafka fill:#f9a8d4,stroke:#333
-    style Consumer fill:#add8e6,stroke:#333
-    style Redis fill:#ffb6c1,stroke:#333
+    style Client fill:#ccc,stroke:#333,color:#000
+    style API fill:#add8e6,stroke:#333,color:#000
+    style DB fill:#90ee90,stroke:#333,color:#000
+    style Relay fill:#ffffe0,stroke:#333,color:#000
+    style Kafka fill:#f9a8d4,stroke:#333,color:#000
+    style Consumer fill:#add8e6,stroke:#333,color:#000
+    style Redis fill:#ffb6c1,stroke:#333,color:#000
 ```
 
 * **Distributed Transactions (Saga Pattern):** Orchestrates complex multi-wallet transfers safely using Kafka as an event broker.
