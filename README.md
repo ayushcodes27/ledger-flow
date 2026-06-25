@@ -89,7 +89,7 @@ Here are the core endpoints driving the LedgerFlow system:
 
 | Endpoint | Method | Purpose | Sample Payload | Success Response |
 |---|---|---|---|---|
-| `/api/v1/wallets` | `POST` | Create a new wallet | `{"currency": "USD"}` | `201 Created` with Wallet ID |
+| `/api/v1/wallets` | `POST` | Create a new wallet | Query param: `?currency=USD` | `201 Created` with Wallet ID |
 | `/api/v1/transfers` | `POST` | Initiate a money transfer | `{"sourceWalletId": "uuid", "targetWalletId": "uuid", "amount": 50.00}` | `202 Accepted` with Transaction ID |
 | `/api/v1/wallets/{id}/ledger` | `GET` | View all immutable ledger entries for a wallet | - | `200 OK` with paginated entries |
 | `/api/v1/wallets/{id}/reconcile` | `GET` | Mathematically prove the wallet balance from the ledger | - | `200 OK` with consistency boolean |
@@ -98,38 +98,81 @@ Here are the core endpoints driving the LedgerFlow system:
 
 ## 💻 Example Usage (First API Call Walkthrough)
 
-Want to see the Saga pattern in action? Try this sequence in your terminal:
+Want to see the Saga pattern in action? Try this sequence in your terminal. Choose the commands matching your operating system/shell:
 
-**1. Create two wallets:**
+### 1. Create two wallets
+
+#### Bash / Linux / macOS:
 ```bash
 # Wallet A
-curl -X POST http://localhost:8088/api/v1/wallets -H "Content-Type: application/json" -d '{"currency": "USD"}'
-# Keep note of the ID returned for Wallet A
-
+curl -X POST "http://localhost:8088/api/v1/wallets?currency=USD"
 # Wallet B
-curl -X POST http://localhost:8088/api/v1/wallets -H "Content-Type: application/json" -d '{"currency": "USD"}'
-# Keep note of the ID returned for Wallet B
+curl -X POST "http://localhost:8088/api/v1/wallets?currency=USD"
 ```
 
-**2. Fund Wallet A:**
+#### Windows PowerShell:
+```powershell
+# Wallet A
+Invoke-RestMethod -Uri "http://localhost:8088/api/v1/wallets?currency=USD" -Method Post
+# Wallet B
+Invoke-RestMethod -Uri "http://localhost:8088/api/v1/wallets?currency=USD" -Method Post
+```
+*(Keep note of the UUIDs returned for Wallet A and Wallet B).*
+
+### 2. Fund Wallet A
+
+#### Bash / Linux / macOS:
 ```bash
-curl -X POST http://localhost:8088/api/v1/wallets/<WALLET_A_ID>/credit -H "Content-Type: application/json" -d '{"amount": 1000.00}'
+curl -X POST http://localhost:8088/api/v1/wallets/<WALLET_A_ID>/credit \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: unique-key-1" \
+  -d '{"amount": 1000.00}'
 ```
 
-**3. Initiate a Distributed Transfer (Wallet A -> Wallet B):**
+#### Windows PowerShell:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8088/api/v1/wallets/<WALLET_A_ID>/credit" \
+  -Method Post \
+  -Headers @{"Idempotency-Key"="unique-key-1"} \
+  -ContentType "application/json" \
+  -Body '{"amount": 1000.00}'
+```
+
+### 3. Initiate a Distributed Transfer (Wallet A -> Wallet B)
+
+#### Bash / Linux / macOS:
 ```bash
-curl -X POST http://localhost:8088/api/v1/transfers -H "Content-Type: application/json" -d '{
-  "sourceWalletId": "<WALLET_A_ID>",
-  "targetWalletId": "<WALLET_B_ID>",
-  "amount": 250.00
-}'
+curl -X POST http://localhost:8088/api/v1/transfers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sourceWalletId": "<WALLET_A_ID>",
+    "targetWalletId": "<WALLET_B_ID>",
+    "amount": 250.00
+  }'
 ```
 
-**4. Check the Ledger (Double-Entry Log):**
+#### Windows PowerShell:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8088/api/v1/transfers" \
+  -Method Post \
+  -ContentType "application/json" \
+  -Body '{"sourceWalletId": "<WALLET_A_ID>", "targetWalletId": "<WALLET_B_ID>", "amount": 250.00}'
+```
+
+### 4. Check the Ledger (Double-Entry Log)
+
+#### Bash / Linux / macOS:
 ```bash
 curl http://localhost:8088/api/v1/wallets/<WALLET_A_ID>/ledger
 curl http://localhost:8088/api/v1/wallets/<WALLET_B_ID>/ledger
 ```
+
+#### Windows PowerShell:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8088/api/v1/wallets/<WALLET_A_ID>/ledger"
+Invoke-RestMethod -Uri "http://localhost:8088/api/v1/wallets/<WALLET_B_ID>/ledger"
+```
+
 
 ## 🏗️ Design Decisions & Patterns
 

@@ -26,17 +26,17 @@ public class TransferSagaOrchestrator {
     private final WalletService walletService;
 
     public TransferSagaOrchestrator(TransactionRepository transactionRepository,
-                                    SagaStateRepository sagaStateRepository,
-                                    OutboxEventRepository outboxEventRepository,
-                                    WalletService walletService) {
+            SagaStateRepository sagaStateRepository,
+            OutboxEventRepository outboxEventRepository,
+            WalletService walletService) {
         this.transactionRepository = transactionRepository;
         this.sagaStateRepository = sagaStateRepository;
         this.outboxEventRepository = outboxEventRepository;
-        this.walletService =  walletService;
+        this.walletService = walletService;
     }
 
     @Transactional
-    public UUID initiateTransfer(UUID sourceWalletId, UUID targetWalletId, BigDecimal amount){
+    public UUID initiateTransfer(UUID sourceWalletId, UUID targetWalletId, BigDecimal amount) {
         log.info("Initiating transfer: sourceWalletId={}, targetWalletId={}, amount={}",
                 sourceWalletId, targetWalletId, amount);
 
@@ -70,7 +70,9 @@ public class TransferSagaOrchestrator {
             String debitKey = txId.toString() + "-debit";
             walletService.debit(tx.getSourceWalletId(), tx.getAmount(), debitKey, txId);
         } catch (IdempotencyException e) {
-            log.warn("Saga [{}]: Debit already processed (IdempotencyException). Money is safe. Waiting for wallet.debited event.", txId);
+            log.warn(
+                    "Saga [{}]: Debit already processed (IdempotencyException). Money is safe. Waiting for wallet.debited event.",
+                    txId);
         } catch (Exception e) {
             log.error("Saga [{}]: Debit failed", txId, e);
             failSaga(state, "Debit failed: " + e.getMessage());
@@ -81,7 +83,7 @@ public class TransferSagaOrchestrator {
     public void handleDebitCompleted(UUID txId) {
         log.info("Saga [{}]: Handling wallet.debited", txId);
         SagaState state = getSagaState(txId);
-        
+
         if (state.getCurrentStep().ordinal() >= SagaStepStatus.DEBIT_COMPLETED.ordinal()) {
             log.info("Saga [{}]: Already processed debit completion, current step: {}", txId, state.getCurrentStep());
             return;
@@ -94,7 +96,8 @@ public class TransferSagaOrchestrator {
             String creditKey = txId.toString() + "-credit";
             walletService.credit(tx.getTargetWalletId(), tx.getAmount(), creditKey, txId);
         } catch (IdempotencyException e) {
-            log.warn("Saga [{}]: Credit already processed (IdempotencyException). Waiting for wallet.credited event.", txId);
+            log.warn("Saga [{}]: Credit already processed (IdempotencyException). Waiting for wallet.credited event.",
+                    txId);
         } catch (Exception e) {
             log.error("Saga [{}]: Credit failed, initiating compensation", txId, e);
             startCompensation(state, "Credit failed: " + e.getMessage());
@@ -124,7 +127,8 @@ public class TransferSagaOrchestrator {
     public boolean isStepCompleted(UUID txId, SagaStepStatus step) {
         return sagaStateRepository.findByTransactionId(txId)
                 .map(state -> {
-                    if (step == SagaStepStatus.INITIATED) return state.getCurrentStep().ordinal() > SagaStepStatus.INITIATED.ordinal();
+                    if (step == SagaStepStatus.INITIATED)
+                        return state.getCurrentStep().ordinal() > SagaStepStatus.INITIATED.ordinal();
                     return state.getCurrentStep().ordinal() >= step.ordinal();
                 })
                 .orElse(false);
@@ -185,4 +189,3 @@ public class TransferSagaOrchestrator {
         return value.substring(0, maxLength);
     }
 }
-

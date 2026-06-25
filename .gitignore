@@ -34,3 +34,7 @@ build/
 
 TRANSFER_DEBUG_REPORT.md
 ledgerflow_technical_reference.md
+
+# Scratch/Temporary files
+tree.txt
+project_code.txt
