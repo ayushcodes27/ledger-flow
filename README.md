@@ -4,6 +4,26 @@ High-performance, event-driven FinTech ledger application demonstrating strict d
 
 ## 🚀 Architecture & Key Features
 
+```mermaid
+flowchart TD
+    Client(["Client (Web/Mobile)"]) -->|"1. Transfer Request"| API["Transfer API (Application)"]
+    API -->|"2. Atomic Write (@Transactional):\n- Transaction (PENDING)\n- SagaState (INITIATED)\n- OutboxEvent"| DB[("PostgreSQL\n(State & Outbox)")]
+    DB -->|"3. Poll Events"| Relay("Outbox Worker\n(Relay)")
+    Relay -->|"4. Publish to topics:\n- transfer.initiated\n- wallet.debited\n- wallet.credited"| Kafka[["Kafka\n(Message Broker)"]]
+    Kafka -->|"5. Consume from topics:\n- transfer.initiated\n- wallet.debited\n- wallet.credited"| Consumer["Ledger Consumer +\nSaga Orchestrator"]
+    Consumer <-->|"6. Acquire Lock & Idempotency Check\n(Proceed/Reject)"| Redis[("Redis\n(Locks & Idempotency)")]
+    Consumer -->|"7. Update Balances &\nWrite Next Event"| DB
+    Consumer -.->|"Compensation:\nRefund source wallet on failure"| DB
+
+    style Client fill:#ccc,stroke:#333
+    style API fill:#add8e6,stroke:#333
+    style DB fill:#90ee90,stroke:#333
+    style Relay fill:#ffffe0,stroke:#333
+    style Kafka fill:#f9a8d4,stroke:#333
+    style Consumer fill:#add8e6,stroke:#333
+    style Redis fill:#ffb6c1,stroke:#333
+```
+
 * **Distributed Transactions (Saga Pattern):** Orchestrates complex multi-wallet transfers safely using Kafka as an event broker.
 * **Concurrency Control:** Utilizes PostgreSQL optimistic locking (`@Version`) to completely eliminate double-spend anomalies under heavy load.
 * **Idempotency:** Implements Redis-backed distributed locks to ensure messages are processed exactly once, protecting the ledger from network retries.
@@ -62,3 +82,111 @@ To run the complete test suite, including the high-concurrency stress tests:
 ```bash
 mvn clean test
 ```
+
+## 📖 API Reference
+
+Here are the core endpoints driving the LedgerFlow system:
+
+| Endpoint | Method | Purpose | Sample Payload | Success Response |
+|---|---|---|---|---|
+| `/api/v1/wallets` | `POST` | Create a new wallet | `{"currency": "USD"}` | `201 Created` with Wallet ID |
+| `/api/v1/transfers` | `POST` | Initiate a money transfer | `{"sourceWalletId": "uuid", "targetWalletId": "uuid", "amount": 50.00}` | `202 Accepted` with Transaction ID |
+| `/api/v1/wallets/{id}/ledger` | `GET` | View all immutable ledger entries for a wallet | - | `200 OK` with paginated entries |
+| `/api/v1/wallets/{id}/reconcile` | `GET` | Mathematically prove the wallet balance from the ledger | - | `200 OK` with consistency boolean |
+
+*Interactive Swagger UI is available at `http://localhost:8088/swagger-ui.html` when the application is running.*
+
+## 💻 Example Usage (First API Call Walkthrough)
+
+Want to see the Saga pattern in action? Try this sequence in your terminal:
+
+**1. Create two wallets:**
+```bash
+# Wallet A
+curl -X POST http://localhost:8088/api/v1/wallets -H "Content-Type: application/json" -d '{"currency": "USD"}'
+# Keep note of the ID returned for Wallet A
+
+# Wallet B
+curl -X POST http://localhost:8088/api/v1/wallets -H "Content-Type: application/json" -d '{"currency": "USD"}'
+# Keep note of the ID returned for Wallet B
+```
+
+**2. Fund Wallet A:**
+```bash
+curl -X POST http://localhost:8088/api/v1/wallets/<WALLET_A_ID>/credit -H "Content-Type: application/json" -d '{"amount": 1000.00}'
+```
+
+**3. Initiate a Distributed Transfer (Wallet A -> Wallet B):**
+```bash
+curl -X POST http://localhost:8088/api/v1/transfers -H "Content-Type: application/json" -d '{
+  "sourceWalletId": "<WALLET_A_ID>",
+  "targetWalletId": "<WALLET_B_ID>",
+  "amount": 250.00
+}'
+```
+
+**4. Check the Ledger (Double-Entry Log):**
+```bash
+curl http://localhost:8088/api/v1/wallets/<WALLET_A_ID>/ledger
+curl http://localhost:8088/api/v1/wallets/<WALLET_B_ID>/ledger
+```
+
+## 🏗️ Design Decisions & Patterns
+
+LedgerFlow solves complex distributed systems challenges using industry-standard patterns:
+
+*   **Saga Pattern:** Multi-wallet transfers are broken down into discrete steps (Debit → Credit). If the target wallet credit fails, the system executes a compensating transaction (a refund back to the source) to maintain eventual consistency.
+*   **Transactional Outbox Pattern:** To avoid unreliable two-phase commits (2PC), database state changes and Kafka events are written to PostgreSQL in a single atomic transaction. A background relay ensures the outbox events are published to Kafka with "at-least-once" guarantees.
+*   **Double-Spend Prevention (Optimistic & Distributed Locks):** Prevents race conditions using a two-tier approach. Redis `RLock` serializes concurrent requests for the same wallet, while PostgreSQL `@Version` optimistic locking acts as the ultimate source of truth, aborting overlapping transactions.
+*   **Idempotent Consumer:** Kafka guarantees at-least-once delivery, which can result in duplicate messages. The consumer uses a Redis `SETNX` lock (`IdempotencyService`) alongside database idempotency keys to guarantee that a transfer step is executed exactly once.
+
+## 📂 Project Structure
+
+```text
+src/main/java/com/project/ledgerflow/
+├── config/         # App, Kafka, OpenAPI, and Redis configurations
+├── consumer/       # Kafka event listeners (LedgerEventConsumer)
+├── controller/     # REST API endpoints
+├── dto/            # Data Transfer Objects
+├── entity/         # JPA Entities (Wallet, Transaction, SagaState, LedgerEntry, OutboxEvent)
+├── exception/      # Global exception handling
+├── repository/     # Spring Data JPA repositories
+├── scheduler/      # Scheduled background jobs (OutboxRelayJob)
+└── service/        # Core business logic & Saga Orchestration
+```
+
+## 🛠️ Running Locally (Hybrid Mode)
+
+If you want to run the infrastructure via Docker but run the Spring Boot application from your IDE (for debugging):
+
+**1. Start only the infrastructure (PostgreSQL, Redis, Kafka):**
+```bash
+docker-compose up -d postgres redis kafka
+```
+
+**2. Configure your local application environment:**
+Ensure your IDE or local `application.yaml` points to the correct ports (they are exposed to localhost in `docker-compose.yml`):
+*   Database: `jdbc:postgresql://localhost:5454/mini_wallet`
+*   Kafka: `localhost:9092`
+*   Redis: `localhost:6379`
+
+**3. Run the Spring Boot App:**
+Run `LedgerFlowApplication` directly from your IDE or via Maven:
+```bash
+./mvnw spring-boot:run
+```
+
+## ⚠️ Known Limitations & Roadmap
+
+#### Current Limitations
+*   **Authentication & Authorization:** No security layer implemented; API is publicly accessible.
+*   **Multi-Currency:** Wallets have a currency, but cross-currency transfers (exchange rates) are not supported.
+*   **Kafka HA:** Runs single-node Kafka in KRaft mode (not meant for production high availability).
+*   **Observability:** Exposes Actuator metrics, but lacks distributed tracing (OpenTelemetry) or Prometheus/Grafana dashboards.
+
+#### Roadmap
+- [ ] Implement Spring Security (JWT) for wallet ownership authorization.
+- [ ] Replace polling outbox relay with a Change Data Capture (CDC) tool like Debezium.
+- [ ] Add Dead Letter Queues (DLQ) for permanent event processing failures.
+- [ ] Add `GET /transfers/{id}` endpoint to track real-time saga status.
+- [ ] Migrate database schema management to Flyway or Liquibase.
