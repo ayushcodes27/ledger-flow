@@ -20,8 +20,5 @@ jobs:
         distribution: 'temurin'
         cache: maven
         
-    - name: Build and run tests with SonarCloud analysis
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      run: mvn -B clean verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=YOUR_SONAR_PROJECT_KEY -Dsonar.organization=YOUR_SONAR_ORG_KEY -Dsonar.host.url=https://sonarcloud.io
+    - name: Build and run tests
+      run: ./mvnw -B clean verify
