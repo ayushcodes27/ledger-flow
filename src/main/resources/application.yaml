@@ -2,6 +2,8 @@ server:
   port: 8088
 
 spring:
+  application:
+    name: ledgerflow-app
   datasource:
     url: jdbc:postgresql://localhost:5454/mini_wallet
     username: wallet_user
@@ -34,6 +36,12 @@ spring:
       port: 6379
 
 management:
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
   endpoints:
     web:
       exposure:
@@ -41,6 +49,7 @@ management:
           - health
           - metrics
           - info
+          - prometheus
   endpoint:
     health:
       show-details: always

@@ -74,7 +74,12 @@ public class TransferSagaOrchestrator {
                     "Saga [{}]: Debit already processed (IdempotencyException). Money is safe. Waiting for wallet.debited event.",
                     txId);
         } catch (Exception e) {
-            log.error("Saga [{}]: Debit failed", txId, e);
+            if (isTransient(e)) {
+                log.warn("Saga [{}]: Debit encountered transient error, throwing for retry", txId, e);
+                if (e instanceof RuntimeException) throw (RuntimeException) e;
+                throw new RuntimeException(e);
+            }
+            log.error("Saga [{}]: Debit failed permanently", txId, e);
             failSaga(state, "Debit failed: " + e.getMessage());
         }
     }
@@ -99,7 +104,12 @@ public class TransferSagaOrchestrator {
             log.warn("Saga [{}]: Credit already processed (IdempotencyException). Waiting for wallet.credited event.",
                     txId);
         } catch (Exception e) {
-            log.error("Saga [{}]: Credit failed, initiating compensation", txId, e);
+            if (isTransient(e)) {
+                log.warn("Saga [{}]: Credit encountered transient error, throwing for retry", txId, e);
+                if (e instanceof RuntimeException) throw (RuntimeException) e;
+                throw new RuntimeException(e);
+            }
+            log.error("Saga [{}]: Credit failed permanently, initiating compensation", txId, e);
             startCompensation(state, "Credit failed: " + e.getMessage());
         }
     }
@@ -150,7 +160,12 @@ public class TransferSagaOrchestrator {
             String refundKey = txId.toString() + "-refund";
             walletService.credit(tx.getSourceWalletId(), tx.getAmount(), refundKey, txId);
         } catch (Exception e) {
-            log.error("Saga [{}]: Fatal error - Compensation failed!", txId, e);
+            if (isTransient(e)) {
+                log.warn("Saga [{}]: Compensation encountered transient error, throwing for retry", txId, e);
+                if (e instanceof RuntimeException) throw (RuntimeException) e;
+                throw new RuntimeException(e);
+            }
+            log.error("Saga [{}]: Fatal error - Compensation failed permanently!", txId, e);
             failSaga(state, "Compensation failed: " + e.getMessage());
         }
     }
@@ -187,5 +202,11 @@ public class TransferSagaOrchestrator {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private boolean isTransient(Exception e) {
+        if (e instanceof IllegalArgumentException) return false;
+        if (e.getMessage() != null && e.getMessage().contains("Permanent")) return false;
+        return true;
     }
 }

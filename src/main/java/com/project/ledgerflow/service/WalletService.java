@@ -92,7 +92,7 @@ public class WalletService {
             Wallet wallet = getWallet(walletId);
 
             if (wallet.getBalance().compareTo(amount) < 0) {
-                throw new RuntimeException("Insufficient funds. Current balance: " + wallet.getBalance());
+                throw new RuntimeException("Permanent: Insufficient funds. Current balance: " + wallet.getBalance());
             }
 
             wallet.setBalance(wallet.getBalance().subtract(amount));
@@ -150,7 +150,7 @@ public class WalletService {
         boolean unlockOnCompletion = false;
 
         try {
-            boolean isLocked = lock.tryLock(5, TimeUnit.SECONDS);
+            boolean isLocked = lock.tryLock(30, TimeUnit.SECONDS);
             if (!isLocked) {
                 throw new RuntimeException("System busy: Could not acquire lock for wallet " + walletId);
             }

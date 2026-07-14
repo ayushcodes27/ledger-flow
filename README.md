@@ -64,13 +64,24 @@ docker-compose up -d
 docker ps
 ```
 
-## 📖 API Documentation & Monitoring
+## 📊 Observability & Monitoring
 
-Once the application is running, you can interact with the API and monitor its health using the built-in dashboards:
+LedgerFlow is built for enterprise-grade observability. It exposes real-time metrics via Spring Boot Actuator and Micrometer, which are scraped by Prometheus and visualized in a custom Grafana dashboard.
+
+![Grafana Dashboard](images/dashboard.png)
+
+**Key Metrics Tracked:**
+* Real-time API Throughput and p95 Latency
+* Distributed Saga Completions (Total Transfers Processed)
+* HikariCP Database Connection Pool utilization
+* JVM CPU and Heap Memory (GC behavior)
+
+Once the application is running, you can interact with the API and monitor its health using the built-in tools:
 
 | Tool | URL |
 |------|-----|
 | Swagger UI (Interactive API Docs) | http://localhost:8088/swagger-ui.html |
+| Grafana Dashboards | http://localhost:3000/ |
 | Actuator Health Check | http://localhost:8088/actuator/health |
 
 ## 🧪 Testing
@@ -225,7 +236,7 @@ Run `LedgerFlowApplication` directly from your IDE or via Maven:
 *   **Authentication & Authorization:** No security layer implemented; API is publicly accessible.
 *   **Multi-Currency:** Wallets have a currency, but cross-currency transfers (exchange rates) are not supported.
 *   **Kafka HA:** Runs single-node Kafka in KRaft mode (not meant for production high availability).
-*   **Observability:** Exposes Actuator metrics, but lacks distributed tracing (OpenTelemetry) or Prometheus/Grafana dashboards.
+*   **Observability:** Fully integrated with Prometheus and Grafana for metrics, but lacks distributed tracing (OpenTelemetry) for end-to-end request tracking.
 
 #### Roadmap
 - [ ] Implement Spring Security (JWT) for wallet ownership authorization.

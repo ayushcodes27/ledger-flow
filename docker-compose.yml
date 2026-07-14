@@ -50,3 +50,21 @@ services:
       - SPRING_DATASOURCE_PASSWORD=wallet_password
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
       - SPRING_DATA_REDIS_HOST=redis
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ledgerflow-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - ledgerflow-app
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ledgerflow-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
