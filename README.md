@@ -84,7 +84,7 @@ Once the application is running, you can interact with the API and monitor its h
 | Grafana Dashboards | http://localhost:3000/ |
 | Actuator Health Check | http://localhost:8088/actuator/health |
 
-## 🧪 Testing
+## 🧪 Testing & Chaos Engineering
 
 The project uses Testcontainers to spin up ephemeral Docker containers for PostgreSQL, Redis, and Kafka during integration tests. This ensures tests run in an identical environment to production.
 
@@ -93,6 +93,14 @@ To run the complete test suite, including the high-concurrency stress tests:
 ```bash
 mvn clean test
 ```
+
+### Chaos Engineering (Fault Injection)
+LedgerFlow includes built-in chaos engineering tests to prove the resilience of its distributed architecture. Using **Toxiproxy**, the integration test suite programmatically simulates network outages (e.g., dropping the connection to Redis midway through a transaction). 
+
+The tests verify that:
+1. Network timeouts are correctly caught and categorized as transient errors.
+2. The Outbox pattern prevents data loss.
+3. Once the network is restored, the Kafka consumer gracefully retries and successfully completes the transaction exactly once without any double-spends.
 
 ## 📖 API Reference
 
