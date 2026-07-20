@@ -96,10 +96,10 @@ public class LedgerConcurrencyIntegrationTest extends AbstractIntegrationTest {
                             new BigDecimal("10.00")
                     );
                     
-                    // Simulate async flow
-                    transferSagaOrchestrator.handleTransferInitiated(transactionId);
-                    transferSagaOrchestrator.handleDebitCompleted(transactionId);
-                    transferSagaOrchestrator.handleCreditCompleted(transactionId);
+                    // Simulate async flow with retries (like Kafka consumer would)
+                    executeWithRetry(() -> transferSagaOrchestrator.handleTransferInitiated(transactionId));
+                    executeWithRetry(() -> transferSagaOrchestrator.handleDebitCompleted(transactionId));
+                    executeWithRetry(() -> transferSagaOrchestrator.handleCreditCompleted(transactionId));
 
                     successfulTransfers.incrementAndGet();
                 } catch (Exception e) {
@@ -122,6 +122,23 @@ public class LedgerConcurrencyIntegrationTest extends AbstractIntegrationTest {
 
         BigDecimal systemTotal = resultA.currentBalance().add(resultB.currentBalance());
         assertEquals(0, systemTotal.compareTo(new BigDecimal("1000.00")));
+    }
+
+    private void executeWithRetry(Runnable action) {
+        int maxRetries = 15;
+        for (int i = 0; i < maxRetries; i++) {
+            try {
+                action.run();
+                return;
+            } catch (Exception e) {
+                if (i == maxRetries - 1) throw e;
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
     }
 }
 
