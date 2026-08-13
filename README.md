@@ -6,6 +6,28 @@ High-performance, event-driven FinTech ledger application demonstrating strict d
 
 ```mermaid
 flowchart LR
+    Client(["Client"])
+    API["Spring Boot API"]
+    Outbox[("PostgreSQL\nOutbox")]
+    Relay["Outbox Relay Worker"]
+    Kafka[["Apache Kafka"]]
+    Saga["Saga Consumer"]
+    Ledger[("PostgreSQL\nLedger")]
+    Redis[("Redis\nLock + Idempotency")]
+
+    Client -->|"REST / JSON"| API
+    API -->|"Write Transaction + Outbox Event"| Outbox
+    Outbox -->|"Poll Pending Events"| Relay
+    Relay -->|"Publish Event"| Kafka
+    Kafka -->|"Consume Event"| Saga
+    Saga -->|"Debit / Credit"| Ledger
+    Saga <-->|"Distributed Lock + Idempotency"| Redis
+```
+
+### Component Architecture
+
+```mermaid
+flowchart LR
     subgraph Client
         App(["Web / Mobile Client"])
     end
