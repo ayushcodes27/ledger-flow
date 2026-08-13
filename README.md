@@ -5,23 +5,50 @@ High-performance, event-driven FinTech ledger application demonstrating strict d
 ## 🚀 Architecture & Key Features
 
 ```mermaid
-flowchart TD
-    Client(["Client (Web/Mobile)"]) -->|"1. Transfer Request"| API["Transfer API (Application)"]
-    API -->|"2. Atomic Write (@Transactional):\n- Transaction (PENDING)\n- SagaState (INITIATED)\n- OutboxEvent"| DB[("PostgreSQL\n(State & Outbox)")]
-    DB -->|"3. Poll Events"| Relay("Outbox Worker\n(Relay)")
-    Relay -->|"4. Publish to topics:\n- transfer.initiated\n- wallet.debited\n- wallet.credited"| Kafka[["Kafka\n(Message Broker)"]]
-    Kafka -->|"5. Consume from topics:\n- transfer.initiated\n- wallet.debited\n- wallet.credited"| Consumer["Ledger Consumer +\nSaga Orchestrator"]
-    Consumer <-->|"6. Acquire Lock & Idempotency Check\n(Proceed/Reject)"| Redis[("Redis\n(Locks & Idempotency)")]
-    Consumer -->|"7. Update Balances &\nWrite Next Event"| DB
-    Consumer -.->|"Compensation:\nRefund source wallet on failure"| DB
+flowchart LR
+    subgraph Client
+        App(["Web / Mobile Client"])
+    end
 
-    style Client fill:#ccc,stroke:#333,color:#000
-    style API fill:#add8e6,stroke:#333,color:#000
-    style DB fill:#90ee90,stroke:#333,color:#000
-    style Relay fill:#ffffe0,stroke:#333,color:#000
-    style Kafka fill:#f9a8d4,stroke:#333,color:#000
-    style Consumer fill:#add8e6,stroke:#333,color:#000
-    style Redis fill:#ffb6c1,stroke:#333,color:#000
+    subgraph Application["Spring Boot Application"]
+        Controller["Transfer API"]
+        Orchestrator["Saga Orchestrator"]
+        WalletSvc["Wallet Service"]
+        Relay["Outbox Relay\n(Scheduled @5s)"]
+        Consumer["Kafka Consumer"]
+    end
+
+    subgraph Postgres["PostgreSQL"]
+        Wallets[("Wallets\n(Optimistic Lock)")]
+        Ledger[("Ledger Entries\n(Append-Only)")]
+        Outbox[("Outbox Table")]
+        SagaTable[("Saga State")]
+    end
+
+    subgraph Kafka["Apache Kafka (KRaft)"]
+        T1["transfer.initiated"]
+        T2["wallet.debited"]
+        T3["wallet.credited"]
+    end
+
+    subgraph Redis["Redis"]
+        Locks["Distributed Locks"]
+        Idemp["Idempotency Keys"]
+    end
+
+    App -->|"POST /transfers"| Controller
+    Controller -->|"Atomic Write:\nTransaction + Saga + Outbox"| Postgres
+    Relay -->|"Poll & Publish"| Outbox
+    Relay -->|"Produce"| Kafka
+    Consumer -->|"Subscribe"| Kafka
+    Consumer -->|"Dedup Check"| Idemp
+    Consumer --> Orchestrator
+    Orchestrator --> WalletSvc
+    WalletSvc -->|"Lock → Debit/Credit → Unlock"| Locks
+    WalletSvc -->|"Update Balance"| Wallets
+    WalletSvc -->|"Append DEBIT/CREDIT"| Ledger
+    WalletSvc -.->|"Next Event"| Outbox
+    Orchestrator -->|"Advance Step"| SagaTable
 ```
 
 * **Distributed Transactions (Saga Pattern):** Orchestrates complex multi-wallet transfers safely using Kafka as an event broker.
@@ -201,6 +228,18 @@ LedgerFlow solves complex distributed systems challenges using industry-standard
 *   **Transactional Outbox Pattern:** To avoid unreliable two-phase commits (2PC), database state changes and Kafka events are written to PostgreSQL in a single atomic transaction. A background relay ensures the outbox events are published to Kafka with "at-least-once" guarantees.
 *   **Double-Spend Prevention (Optimistic & Distributed Locks):** Prevents race conditions using a two-tier approach. Redis `RLock` serializes concurrent requests for the same wallet, while PostgreSQL `@Version` optimistic locking acts as the ultimate source of truth, aborting overlapping transactions.
 *   **Idempotent Consumer:** Kafka guarantees at-least-once delivery, which can result in duplicate messages. The consumer uses a Redis `SETNX` lock (`IdempotencyService`) alongside database idempotency keys to guarantee that a transfer step is executed exactly once.
+
+### Saga State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> INITIATED : Transfer requested
+    INITIATED --> DEBIT_COMPLETED : Source wallet debited
+    DEBIT_COMPLETED --> COMPLETED : Target wallet credited ✅
+    DEBIT_COMPLETED --> COMPENSATING : Credit failed ⚠️
+    COMPENSATING --> FAILED : Refund applied to source ❌
+    INITIATED --> FAILED : Debit failed (e.g. insufficient funds) ❌
+```
 
 ## 📂 Project Structure
 
