@@ -1,8 +1,18 @@
 # LedgerFlow
 
+![Java](https://img.shields.io/badge/Java-21-blue)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791)
+![Kafka](https://img.shields.io/badge/Kafka-KRaft-231F20)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
+
 High-performance, event-driven FinTech ledger application demonstrating strict double-entry accounting and distributed systems resilience.
 
-## 🚀 Architecture & Key Features
+* **Interview Preparation Guide**: See [`LEDGERFLOW_INTERVIEW_PREP.md`](file:///c:/Users/deore/Desktop/LedgerFlow/LedgerFlow/LEDGERFLOW_INTERVIEW_PREP.md) for 2-minute verbal walkthroughs, whiteboard schema diagrams, technology justifications, LLD vocabulary mappings, and real debugging stories.
+* **Future Roadmap & Upgrades**: See [`ROADMAP.md`](file:///c:/Users/deore/Desktop/LedgerFlow/LedgerFlow/ROADMAP.md) for planned interactive frontend demo dashboard specifications.
+
+## Architecture & Key Features
 
 ```mermaid
 flowchart LR
@@ -79,7 +89,7 @@ flowchart LR
 * **Modern Messaging:** Uses Kafka in KRaft mode (no Zookeeper) for lightweight, high-throughput event streaming.
 * **Observability:** Fully integrated Spring Boot Actuator for enterprise-grade health and metrics monitoring.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 * **Core:** Java 21, Spring Boot 3.x
 * **Database & Cache:** PostgreSQL 15, Redis 7
@@ -88,7 +98,7 @@ flowchart LR
 * **Infrastructure:** Docker & Docker Compose
 * **API Documentation:** Springdoc OpenAPI (Swagger UI)
 
-## ⚡ Quick Start (One-Click Setup)
+## Quick Start (One-Click Setup)
 
 The entire distributed architecture (API, Database, Cache, and Message Broker) is fully containerized. You do not need to install anything other than Docker.
 
@@ -113,7 +123,7 @@ docker-compose up -d
 docker ps
 ```
 
-## 📊 Observability & Monitoring
+## Observability & Monitoring
 
 LedgerFlow is built for enterprise-grade observability. It exposes real-time metrics via Spring Boot Actuator and Micrometer, which are scraped by Prometheus and visualized in a custom Grafana dashboard.
 
@@ -133,7 +143,7 @@ Once the application is running, you can interact with the API and monitor its h
 | Grafana Dashboards | http://localhost:3000/ |
 | Actuator Health Check | http://localhost:8088/actuator/health |
 
-## 🧪 Testing & Chaos Engineering
+## Testing & Chaos Engineering
 
 The project uses Testcontainers to spin up ephemeral Docker containers for PostgreSQL, Redis, and Kafka during integration tests. This ensures tests run in an identical environment to production.
 
@@ -151,7 +161,7 @@ The tests verify that:
 2. The Outbox pattern prevents data loss.
 3. Once the network is restored, the Kafka consumer gracefully retries and successfully completes the transaction exactly once without any double-spends.
 
-## 📖 API Reference
+## API Reference
 
 Here are the core endpoints driving the LedgerFlow system:
 
@@ -164,7 +174,7 @@ Here are the core endpoints driving the LedgerFlow system:
 
 *Interactive Swagger UI is available at `http://localhost:8088/swagger-ui.html` when the application is running.*
 
-## 💻 Example Usage (First API Call Walkthrough)
+## Example Usage (First API Call Walkthrough)
 
 Want to see the Saga pattern in action? Try this sequence in your terminal. Choose the commands matching your operating system/shell:
 
@@ -242,7 +252,7 @@ Invoke-RestMethod -Uri "http://localhost:8088/api/v1/wallets/<WALLET_B_ID>/ledge
 ```
 
 
-## 🏗️ Design Decisions & Patterns
+## Design Decisions & Patterns
 
 LedgerFlow solves complex distributed systems challenges using industry-standard patterns:
 
@@ -263,7 +273,7 @@ stateDiagram-v2
     INITIATED --> FAILED : Debit failed (e.g. insufficient funds) ❌
 ```
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 src/main/java/com/project/ledgerflow/
@@ -278,7 +288,7 @@ src/main/java/com/project/ledgerflow/
 └── service/        # Core business logic & Saga Orchestration
 ```
 
-## 🛠️ Running Locally (Hybrid Mode)
+## Running Locally (Hybrid Mode)
 
 If you want to run the infrastructure via Docker but run the Spring Boot application from your IDE (for debugging):
 
@@ -299,7 +309,7 @@ Run `LedgerFlowApplication` directly from your IDE or via Maven:
 ./mvnw spring-boot:run
 ```
 
-## ⚠️ Known Limitations & Roadmap
+## Known Limitations & Roadmap
 
 #### Current Limitations
 *   **Authentication & Authorization:** No security layer implemented; API is publicly accessible.
