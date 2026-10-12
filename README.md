@@ -7,10 +7,16 @@
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
 
-High-performance, event-driven FinTech ledger application demonstrating strict double-entry accounting and distributed systems resilience.
+**LedgerFlow** is a distributed, event-driven financial ledger engine designed for high-concurrency, mission-critical money movement with strict consistency guarantees. 
 
-* **Interview Preparation Guide**: See [`LEDGERFLOW_INTERVIEW_PREP.md`](file:///c:/Users/deore/Desktop/LedgerFlow/LedgerFlow/LEDGERFLOW_INTERVIEW_PREP.md) for 2-minute verbal walkthroughs, whiteboard schema diagrams, technology justifications, LLD vocabulary mappings, and real debugging stories.
-* **Future Roadmap & Upgrades**: See [`ROADMAP.md`](file:///c:/Users/deore/Desktop/LedgerFlow/LedgerFlow/ROADMAP.md) for planned interactive frontend demo dashboard specifications.
+In modern digital banking and digital wallet systems, moving funds across accounts cannot rely on long-lived database locks across service boundaries without causing connection pool starvation, latency spikes, and double-spend vulnerabilities. LedgerFlow solves this by decoupling transfer execution into an **orchestrated Saga**, safeguarding balances through **two-tier concurrency control**, and recording all financial movements in an **immutable, append-only ledger**.
+
+### Core Highlights
+* **Zero Double-Spending:** Multi-layered concurrency control utilizing in-memory Redisson (Redis) distributed locks backed by PostgreSQL Optimistic Concurrency Control (`@Version`).
+* **Resilient Distributed Transactions:** Coordinated via the Orchestrated Saga pattern with automatic compensating rollback (refunds) if downstream credit steps fail.
+* **Guaranteed Delivery (No Dual-Write Dilemma):** Implements the Transactional Outbox pattern to atomically commit business events and database mutations before relaying to Apache Kafka.
+* **Audit-Proof Financial Ledger:** Double-entry accounting model where every movement appends immutable `DEBIT` and `CREDIT` entries, allowing real-time mathematical balance reconciliation.
+* **Production-Grade Observability:** Pre-configured Prometheus scraping and Grafana dashboards tracking p95 latency, HikariCP pool utilization, and Saga completion metrics.
 
 ## Architecture & Key Features
 
